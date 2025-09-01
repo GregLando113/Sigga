@@ -10,6 +10,7 @@
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.mem.Memory;
@@ -101,14 +102,52 @@ public class Sigga extends GhidraScript {
      */
     @Override
     public void run() throws Exception {
-        String action = askChoice("Sigga", "Choose an action:", Arrays.asList("Create Signature", "Find Signature"), "Create Signature");
-        if ("Create Signature".equals(action)) {
+        // String action = askChoice("Sigga", "Choose an action:", Arrays.asList("Create Signature", "Find Signature"), "Create Signature");
+        // if ("Create Signature".equals(action)) {
             createSignature();
-        } else if ("Find Signature".equals(action)) {
-            findSignature();
-        }
+        // } else if ("Find Signature".equals(action)) {
+        //     findSignature();
+        // }
     }
+
     
+    private String createFunctionMacro(Function fn, String signature, int offset, boolean isXref) {
+        String offsetStr = "";
+        if (offset < 0) {
+            offsetStr = String.format("addr + 0x%X", -offset);
+        }
+        else {
+            offsetStr = String.format("addr - 0x%X", offset);
+        }
+        if (isXref) {
+            offsetStr = String.format("[](uintptr_t addr) { return FollowBranch(%s); }", offsetStr);
+        }
+        else {
+            offsetStr = String.format("[](uintptr_t addr) { return %s; }", offsetStr);
+        }
+
+        String macroStr = "FOREIGN_FN_SIG";
+        Parameter firstParam = fn.getParameter(0);
+        if (firstParam != null && firstParam.getName().equals("this")) { // assume it is a member function, pack the macro to be so.
+            macroStr = "FOREIGN_MEMBER_FN_SIG";
+        }
+
+        String paramStr = (firstParam == null) ? "" : ",\n\t";
+        boolean first = true;
+        for (Parameter param : fn.getParameters()) {
+            if (first) {
+                first = false;
+                if (macroStr == "FOREIGN_MEMBER_FN_SIG")
+                    continue;
+            }
+            paramStr += String.format("%s %s, ", param.getDataType().getName(), param.getName());
+        }
+        if (firstParam != null)
+            paramStr = paramStr.substring(0,paramStr.length()-2);
+
+        return String.format("%s(\n\t%s,\n\t%s, %s,\n\t\"%s\",\n\t%s%s\n);", macroStr, fn.getName(), fn.getReturnType().getName(), fn.getCallingConventionName(), signature, offsetStr, paramStr );
+    }
+
     /**
      * Main function to create a signature for the function at the current cursor location.
      * Uses a two-phase approach: direct scan, then XRef fallback scan.
@@ -133,12 +172,26 @@ public class Sigga extends GhidraScript {
                 for (int offset = 0; offset <= featureVector.size() - windowSize; offset++) {
                     monitor.checkCancelled();
                     List<String> window = featureVector.subList(offset, offset + windowSize);
+
                     String signature = String.join(" ", window);
                     if (isSignatureUniqueInBinary(signature)) {
-                        String finalOutput = String.format("Signature: \"%s\" (Offset: %d)", signature, offset);
+
+                        // Trim leading wildcards
+                        while (signature.startsWith("? ")) {
+                            signature = signature.substring(2);
+                            offset += 1;
+                        }
+
+                        // Trim trailing wildcards
+                        while (signature.endsWith(" ?")) {
+                            signature = signature.substring(0,signature.length()-2);
+                        }
+
+                        String finalOutput = String.format("Signature: \"%s\" (Offset: 0x%X)", signature, offset);
                         copyToClipboard(signature);
                         println("Found unique direct signature!");
                         println(finalOutput + " - Signature text copied to clipboard.");
+                        println("\n" + createFunctionMacro(function, signature, offset, false));
                         return;
                     }
                 }
@@ -169,8 +222,10 @@ public class Sigga extends GhidraScript {
 
             // Create a signature from the instructions leading up to the CALL.
             List<Instruction> xrefInstructions = new LinkedList<>();
+            int offset = 0;
             Instruction current = refInstr;
             for (int i = 0; i < XREF_SIG_INSTRUCTIONS && current != null; i++) {
+                offset += current.getLength();
                 xrefInstructions.add(current);
                 current = current.getPrevious();
             }
@@ -178,10 +233,22 @@ public class Sigga extends GhidraScript {
             
             String signature = buildFeatureString(xrefInstructions);
             if (isSignatureUniqueInBinary(signature)) {
+                
+                // Trim leading wildcards
+                while (signature.startsWith("? ")) {
+                    signature = signature.substring(2);
+                }
+
+                // Trim trailing wildcards
+                while (signature.endsWith(" ?")) {
+                    signature = signature.substring(0,signature.length()-2);
+                }
+
                 String finalOutput = String.format("Signature: \"%s\" (Found via XRef from %s)", signature, refAddr);
                 copyToClipboard(signature);
                 println("Found unique XRef signature!");
                 println(finalOutput + " - This signature finds the CALLER, not the function itself.");
+                println("\n" + createFunctionMacro(function, signature, -(offset-4), true));
                 return;
             }
         }
