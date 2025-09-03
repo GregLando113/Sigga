@@ -225,6 +225,8 @@ public class Sigga extends GhidraScript {
             int offset = 0;
             Instruction current = refInstr;
             for (int i = 0; i < XREF_SIG_INSTRUCTIONS && current != null; i++) {
+                if (i != XREF_SIG_INSTRUCTIONS-1)
+                    offset += current.getLength();
                 offset += current.getLength();
                 xrefInstructions.add(current);
                 current = current.getPrevious();
