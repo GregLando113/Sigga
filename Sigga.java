@@ -225,9 +225,8 @@ public class Sigga extends GhidraScript {
             int offset = 0;
             Instruction current = refInstr;
             for (int i = 0; i < XREF_SIG_INSTRUCTIONS && current != null; i++) {
-                if (i != XREF_SIG_INSTRUCTIONS-1)
-                    offset += current.getLength();
-                offset += current.getLength();
+                // if (i != XREF_SIG_INSTRUCTIONS-1)
+                //     offset += current.getLength();
                 xrefInstructions.add(current);
                 current = current.getPrevious();
             }
@@ -317,15 +316,23 @@ public class Sigga extends GhidraScript {
         for (int i = 0; i < instruction.getNumOperands(); i++) {
             Object[] opObjects = instruction.getOpObjects(i);
             for (Object obj : opObjects) {
-                if (obj instanceof Register) {
-                    Register reg = (Register) obj;
-                    String regName = reg.getName().toUpperCase();
-                    // Check for all common stack and base pointer register names for x86/x64.
-                    if (regName.equals("RSP") || regName.equals("ESP") ||  // Stack Pointers
-                        regName.equals("RBP") || regName.equals("EBP")) {  // Base Pointers
-                        return false;
-                    }
+
+                // KAOS: get rid of immediate, these will be relocated
+                if (obj instanceof Address) {
+                    return false;
                 }
+
+                /// KAOS: Why? if params/locals change I would want the sig to break.
+                // if (obj instanceof Register) {
+                //     Register reg = (Register) obj;
+                //     String regName = reg.getName().toUpperCase();
+                //     // Check for all common stack and base pointer register names for x86/x64.
+                //     if (regName.equals("RSP") || regName.equals("ESP") ||  // Stack Pointers
+                //         regName.equals("RBP") || regName.equals("EBP")) {  // Base Pointers
+                //         return false;
+                //     }
+                // }
+
             }
         }
         
